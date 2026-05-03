@@ -408,6 +408,14 @@ function _initDefaults(){
   APP.trips=[];
   APP.sales=[];APP.settings={businessName:'SAFA GEMS',ownerName:'Shafwan M H M'};
 }
+function _repairMissingSales(){
+  // Create placeholder sale records for sold stones that have no APP.sales entry
+  APP.stones.forEach(function(s){
+    if((s.status==='sold_foreign'||s.status==='sold_local')&&!APP.sales.find(function(sa){return sa.stoneId===s.id;})){
+      APP.sales.push({id:uid(),stoneId:s.id,type:s.status==='sold_foreign'?'foreign':'local',amtLKR:s.soldPriceLKR||s.soldPrice||0,amtForeign:s.soldPriceForeign||null,currency:s.soldCurrency||'LKR',currencySymbol:s.soldCurrencySymbol||'',rate:1,customerId:s.soldCustomerId||null,tripId:s.tripId||null,date:s.soldDate||s.updatedAt||today(),createdAt:today()});
+    }
+  });
+}
 function _repairTripStones(){
   // One-time migration: remove built-in China Tour 2026
   APP.trips=APP.trips.filter(t=>t.id!=='trip_china2026');
@@ -423,7 +431,7 @@ function _repairTripStones(){
   });
 }
 function loadDB(){
-  try{const s=localStorage.getItem(DB_KEY);if(s){APP=JSON.parse(s);_repairTripStones();saveDB();return;}}catch(e){}
+  try{const s=localStorage.getItem(DB_KEY);if(s){APP=JSON.parse(s);_repairTripStones();_repairMissingSales();saveDB();return;}}catch(e){}
   _initDefaults();saveDB();
 }
 
@@ -734,6 +742,7 @@ function openStoneDrawer(id){
   actions+=`<button class="btn btn-outline btn-sm" onclick="closeDrawer();openEditStone('${s.id}')">✏️ Edit</button>`;
   if(s.isLot&&(s.status==='stock'||s.status==='on_trip'))actions+=`<button class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)" onclick="closeDrawer();openSplitLot('${s.id}')">✂️ Split Lot</button>`;
   if(s.status==='on_trip')actions+=`<button class="btn btn-outline btn-sm" style="border-color:var(--gold);color:var(--gold)" onclick="closeDrawer();enableTripCombineMode('${s.id}')">⊕ Combine</button>`;
+  if(s.status==='sold_foreign'||s.status==='sold_local')actions+=`<button class="btn btn-sm" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);color:#dc2626;border-radius:var(--radius-sm);padding:6px 12px;font-size:12px;font-weight:600" onclick="closeDrawer();reverseSale('${s.id}')">↩ Return Sale</button>`;
   document.getElementById('drawer-body').innerHTML=`
     <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:16px">
       <div class="price-box"><div class="price-box-label">Min Price (LKR)</div><div class="price-box-val">${s.minLKR?'Rs.'+s.minLKR.toLocaleString():'<span class="text-muted">TBD</span>'}</div></div>
@@ -1419,6 +1428,9 @@ function renderMore(){
   document.getElementById('view-more').innerHTML=`<div class="view-pad">
     <div class="view-hdr"><h2>More</h2></div>
     ${[['👤 Customers',`${APP.customers.length} registered`,'customers'],['🤝 Suppliers',`${APP.suppliers.length} suppliers`,'suppliers'],['📋 Reports',`${APP.trips.filter(t=>t.status==='completed').length} completed trips`,'reports'],['📥 Bulk Import','CSV template upload','import']].map(([t,s,v])=>`<div class="card" onclick="renderMoreSub('${v}')" style="margin-bottom:8px"><div class="card-row"><div class="card-left"><div class="stone-name">${t}</div><div class="stone-meta"><span class="stone-code">${s}</span></div></div><span style="color:var(--text3)">›</span></div></div>`).join('')}
+    <div class="card" onclick="exportBackup()" style="margin-bottom:8px;border-color:rgba(1,126,132,0.2)"><div class="card-row"><div class="card-left"><div class="stone-name" style="color:var(--primary)">📥 Download Backup</div><div class="stone-meta"><span class="stone-code">Save all data as JSON file</span></div></div><span style="color:var(--text3)">›</span></div></div>
+    <div class="card" onclick="document.getElementById('restore-file-input').click()" style="margin-bottom:8px;border-color:rgba(1,126,132,0.2)"><div class="card-row"><div class="card-left"><div class="stone-name" style="color:var(--primary)">📤 Restore from Backup</div><div class="stone-meta"><span class="stone-code">Load a previously saved JSON file</span></div></div><span style="color:var(--text3)">›</span></div></div>
+    <input type="file" id="restore-file-input" accept=".json" style="display:none" onchange="importBackup(this)">
     <div class="card" onclick="resetAppData()" style="margin-bottom:8px;border-color:rgba(248,113,113,0.2)"><div class="card-row"><div class="card-left"><div class="stone-name" style="color:var(--red)">🔄 Reset App Data</div><div class="stone-meta"><span class="stone-code">Reload pre-loaded 177 stones</span></div></div><span style="color:var(--text3)">›</span></div></div>
   </div>`;
 }
@@ -1875,6 +1887,42 @@ function submitSplitLot(lotId){
   saveDB();closeModal();renderView(currentView);updateTripBanner();toast(`Lot split into ${n} stones`);
 }
 
+function exportBackup(){
+  const data=JSON.parse(JSON.stringify(APP));
+  data._exportedAt=new Date().toISOString();
+  data._version='safa_gems_v2';
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='SAFAGEMS_backup_'+today()+'.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Backup downloaded ✓');
+}
+
+function importBackup(input){
+  const file=input.files[0];if(!file)return;
+  if(!confirm('Restore from backup? This will REPLACE all current data.'))return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.stones||!Array.isArray(data.stones)){toast('Invalid backup file','error');return;}
+      APP=data;
+      ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
+      if(!APP.settings)APP.settings={};
+      _repairTripStones();_repairMissingSales();
+      saveDB();
+      if(_fs){_fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP))).catch(()=>{});}
+      renderView(currentView);updateTripBanner();
+      toast('Backup restored — '+data.stones.length+' stones loaded ✓');
+    }catch(err){toast('Could not read backup file','error');}
+  };
+  reader.readAsText(file);
+  input.value='';
+}
+
 // ─── Return stone from trip back to stock ─────────────────────────────────────
 function returnStoneToStock(id){
   const s=APP.stones.find(st=>st.id===id);if(!s)return;
@@ -1977,7 +2025,7 @@ async function syncFirestore(){
         APP=remote;
         ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
         if(!APP.settings)APP.settings={};
-        _repairTripStones();
+        _repairTripStones();_repairMissingSales();
         try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
         await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
         renderView(currentView);updateTripBanner();
