@@ -2068,7 +2068,22 @@ async function syncFirestore(){
           renderView(currentView);updateTripBanner();
         }else{
           // Local is newer or same — push local to Firestore (never overwrite newer local with stale remote)
-          await _fs.collection('safa
+          await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
+        }
+      }else{
+        // Firestore empty — push local up
+        await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
+      }
+    }else{
+      await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
+    }
+    setSyncStatus('ok');
+  }catch(e){
+    console.warn('Firestore sync error:',e);
+    setSyncStatus('err');
+  }
+}
+
 </script>
 </body>
 </html>
