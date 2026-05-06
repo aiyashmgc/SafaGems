@@ -391,6 +391,7 @@ function normalizeStoneType(name){if(!name)return name;return name.replace(/\s*\
 const DB_KEY='safagems_v2';
 let APP={stones:[],suppliers:[],customers:[],trips:[],sales:[],settings:{}};
 function saveDB(){
+  APP.lastModified=Date.now();
   try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
   if(!_fs)return;
   clearTimeout(_fsTimer);
@@ -2022,25 +2023,20 @@ async function syncFirestore(){
     if(doc.exists){
       const remote=doc.data();
       if(remote&&remote.stones&&remote.stones.length){
-        APP=remote;
-        ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
-        if(!APP.settings)APP.settings={};
-        _repairTripStones();_repairMissingSales();
-        try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
-        await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
-        renderView(currentView);updateTripBanner();
-      }else{
-        await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
-      }
-    }else{
-      await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
-    }
-    setSyncStatus('ok');
-  }catch(e){
-    console.warn('Firestore sync error:',e);
-    setSyncStatus('err');
-  }
-}
+        const localTime=APP.lastModified||0;
+        const remoteTime=remote.lastModified||0;
+        if(remoteTime>localTime){
+          // Firestore is genuinely newer — use it
+          APP=remote;
+          ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
+          if(!APP.settings)APP.settings={};
+          _repairTripStones();_repairMissingSales();
+          APP.lastModified=remoteTime;
+          try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
+          renderView(currentView);updateTripBanner();
+        }else{
+          // Local is newer or same — push local to Firestore (never overwrite newer local with stale remote)
+          await _fs.collection('safa
 </script>
 </body>
 </html>
