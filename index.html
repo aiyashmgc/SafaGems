@@ -2047,41 +2047,48 @@ function setSyncStatus(state){
   else if(state==='loading'){el.textContent='↻';el.title='Syncing…';el.style.color='var(--text3)';}
   else{el.textContent='☁';el.style.color='var(--text3)';}
 }
-async function syncFirestore(){
+let _unsubFirestore=null;
+function syncFirestore(){
   if(!_fs){setSyncStatus('err');return;}
+  // Cancel any previous listener
+  if(_unsubFirestore){try{_unsubFirestore();}catch(e){}}_unsubFirestore=null;
   setSyncStatus('loading');
-  try{
-    const doc=await _fs.collection('safa_gems').doc('main').get();
-    if(doc.exists){
-      const remote=doc.data();
-      if(remote&&remote.stones&&remote.stones.length){
-        const localTime=APP.lastModified||0;
-        const remoteTime=remote.lastModified||0;
-        if(remoteTime>localTime){
-          // Firestore is genuinely newer — use it
-          APP=remote;
-          ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
-          if(!APP.settings)APP.settings={};
-          _repairTripStones();_repairMissingSales();
-          APP.lastModified=remoteTime;
-          try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
-          renderView(currentView);updateTripBanner();
+  // Real-time listener — fires immediately with current data, then on every remote change
+  _unsubFirestore=_fs.collection('safa_gems').doc('main').onSnapshot(doc=>{
+    try{
+      if(doc.exists){
+        const remote=doc.data();
+        if(remote&&remote.stones&&remote.stones.length){
+          const localTime=APP.lastModified||0;
+          const remoteTime=remote.lastModified||0;
+          if(remoteTime>localTime){
+            // Remote is newer — pull it in and re-render
+            APP=remote;
+            ['stones','suppliers','customers','trips','sales'].forEach(k=>{if(!Array.isArray(APP[k]))APP[k]=[];});
+            if(!APP.settings)APP.settings={};
+            _repairTripStones();_repairMissingSales();
+            APP.lastModified=remoteTime;
+            try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
+            renderView(currentView);updateTripBanner();
+          }else if(localTime>remoteTime){
+            // Local is newer — push it up (happens on first sync after offline changes)
+            _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP))).catch(()=>{});
+          }
+          // If equal — already in sync, do nothing
         }else{
-          // Local is newer or same — push local to Firestore (never overwrite newer local with stale remote)
-          await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
+          // Firestore empty — push local up
+          _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP))).catch(()=>{});
         }
       }else{
-        // Firestore empty — push local up
-        await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
+        // Doc doesn't exist yet — push local up
+        _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP))).catch(()=>{});
       }
-    }else{
-      await _fs.collection('safa_gems').doc('main').set(JSON.parse(JSON.stringify(APP)));
-    }
-    setSyncStatus('ok');
-  }catch(e){
-    console.warn('Firestore sync error:',e);
+      setSyncStatus('ok');
+    }catch(e){console.warn('onSnapshot handler error:',e);setSyncStatus('err');}
+  },err=>{
+    console.warn('Firestore listener error:',err);
     setSyncStatus('err');
-  }
+  });
 }
 
 </script>
