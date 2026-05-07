@@ -288,7 +288,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 <div id="app">
   <header id="hdr">
     <div class="hdr-btn" id="btn-hamburger" onclick="openSidebar()" style="margin-right:6px;font-size:20px">☰</div><div id="hdr-logo" onclick="navigate('dashboard')" style="cursor:pointer">💎</div>
-    <div id="hdr-title" onclick="navigate('dashboard')" style="cursor:pointer"><h1>SAFA GEMS <span style="font-size:10px;font-weight:500;color:var(--primary);opacity:0.85;letter-spacing:0">v1.3</span></h1><p>by Shafwan M H M</p></div>
+    <div id="hdr-title" onclick="navigate('dashboard')" style="cursor:pointer"><h1>SAFA GEMS <span style="font-size:10px;font-weight:500;color:var(--primary);opacity:0.85;letter-spacing:0">v1.4</span></h1><p>by Shafwan M H M</p></div>
     <div id="hdr-actions"><div id="sync-indicator" onclick="syncFirestore()" title="Cloud sync" style="font-size:16px;cursor:pointer;padding:0 4px;color:var(--text3)">☁</div>
       <div class="hdr-btn" id="btn-search-global" onclick="openGlobalSearch()">🔍</div>
       <div class="hdr-btn" id="btn-add-main" onclick="fabAction()">＋</div>
@@ -402,6 +402,11 @@ function saveDB(){
       .catch(()=>setSyncStatus('err'));
   },900);
 }
+// Save to localStorage only — does NOT update lastModified or trigger Firestore write
+// Use this for repair/load operations that are not user-initiated changes
+function saveLocalOnly(){
+  try{localStorage.setItem(DB_KEY,JSON.stringify(APP));}catch(e){}
+}
 function _initDefaults(){
   APP.stones=STONES_INIT.map(s=>({...s}));
   APP.suppliers=SUPPLIERS_INIT.map(s=>({...s}));
@@ -432,7 +437,8 @@ function _repairTripStones(){
   });
 }
 function loadDB(){
-  try{const s=localStorage.getItem(DB_KEY);if(s){APP=JSON.parse(s);_repairTripStones();_repairMissingSales();saveDB();return;}}catch(e){}
+  try{const s=localStorage.getItem(DB_KEY);if(s){APP=JSON.parse(s);_repairTripStones();_repairMissingSales();saveLocalOnly();return;}}catch(e){}
+  // First ever load — init defaults and set a fresh lastModified
   _initDefaults();saveDB();
 }
 
